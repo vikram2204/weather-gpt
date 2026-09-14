@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const WeatherMap = dynamic(
   () => import("./components/WeatherMap"),
@@ -119,6 +119,7 @@ export default function Home() {
   const [historicalYears, setHistoricalYears] = useState(1);
   const [historicalLoading, setHistoricalLoading] = useState(false);
   const [historicalError, setHistoricalError] = useState("");
+  const historicalRequestRef = useRef(0);
 
   const [impactAdvisory, setImpactAdvisory] = useState("");
   const [impactAdvisoryLoading, setImpactAdvisoryLoading] = useState(false);
@@ -132,31 +133,59 @@ export default function Home() {
     lon: number,
     years = historicalYears
   ) {
+    const requestId = ++historicalRequestRef.current;
+
     try {
       setHistoricalLoading(true);
       setHistoricalError("");
 
       const response = await fetch(
-        `/api/history?latitude=${lat}&longitude=${lon}&years=${years}`
+        `/api/history?latitude=${lat}&longitude=${lon}&years=${years}&_=${Date.now()}`,
+        {
+          cache: "no-store",
+        }
       );
-
-      if (!response.ok) {
-        throw new Error("Historical weather request failed");
-      }
 
       const data = await response.json();
 
-      if (!data.success) {
-        throw new Error(data.error || "Historical weather unavailable");
+      if (!response.ok || !data.success) {
+        throw new Error(
+          data?.error || `Historical weather request failed (${response.status})`
+        );
+      }
+
+      if (
+        !data.summary ||
+        !Array.isArray(data.yearly) ||
+        !Array.isArray(data.monthly)
+      ) {
+        throw new Error("Historical weather returned an invalid data structure.");
+      }
+
+      // Ignore an older request if a newer location/range request has started.
+      if (requestId !== historicalRequestRef.current) {
+        return;
       }
 
       setHistoricalData(data);
+      setHistoricalError("");
     } catch (error) {
       console.error("Historical weather error:", error);
-      setHistoricalData(null);
-      setHistoricalError("Unable to load historical climate data.");
+
+      // Never let an older failed request overwrite newer successful data.
+      if (requestId !== historicalRequestRef.current) {
+        return;
+      }
+
+      setHistoricalError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load historical climate data."
+      );
     } finally {
-      setHistoricalLoading(false);
+      if (requestId === historicalRequestRef.current) {
+        setHistoricalLoading(false);
+      }
     }
   }
 
@@ -251,7 +280,15 @@ export default function Home() {
           nwpPromise,
         ]);
 
-        void generateAdvancedAI(
+        if (nwpResult) {
+          void generateNWPInsight(
+            nwpResult,
+            data.weather,
+            data.location.name
+          );
+        }
+
+        void generateImpactAdvisory(
           data.weather,
           data.location.name,
           data.alerts || [],
@@ -331,7 +368,15 @@ export default function Home() {
           nwpPromise,
         ]);
 
-        void generateAdvancedAI(
+        if (nwpResult) {
+          void generateNWPInsight(
+            nwpResult,
+            data.weather,
+            data.location.name
+          );
+        }
+
+        void generateImpactAdvisory(
           data.weather,
           data.location.name,
           data.alerts || [],
@@ -460,145 +505,6 @@ export default function Home() {
     };
 
     recognition.start();
-  }
-
-  async function generateAdvancedAI(
-    weatherData: WeatherData,
-    locationName: string,
-    currentAlerts: Alert[],
-    nwp?: any
-  ) {
-    try {
-      setNwpInsightLoading(true);
-      setImpactAdvisoryLoading(true);
-      setNwpInsight("");
-      setImpactAdvisory("");
-
-      const next24Hours = weatherData.hourly.time
-        .slice(0, 24)
-        .map((time, index) => ({
-          time,
-          temperature: weatherData.hourly.temperature_2m[index],
-          rainProbability:
-            weatherData.hourly.precipitation_probability[index],
-          humidity: weatherData.hourly.relative_humidity_2m[index],
-          wind: weatherData.hourly.wind_speed_10m[index],
-        }));
-
-      const sevenDayForecast = weatherData.daily.time.map((date, index) => ({
-        date,
-        maxTemperature: weatherData.daily.temperature_2m_max[index],
-        minTemperature: weatherData.daily.temperature_2m_min[index],
-        rainProbability:
-          weatherData.daily.precipitation_probability_max[index],
-        weatherCode: weatherData.daily.weather_code[index],
-        maxWind: weatherData.daily.wind_speed_10m_max[index],
-      }));
-
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          question: `Generate TWO weather intelligence outputs for ${locationName} using ONLY the supplied weather data.
-
-OUTPUT 1 — NWP INSIGHT
-Explain the NWP model disagreement. Compare ECMWF and GFS, identify which variable disagrees most, explain what that means for forecast confidence, and give one practical takeaway. Keep this to 2-4 useful sentences.
-
-OUTPUT 2 — IMPACT ADVISORY
-Return exactly five short sections in this order:
-1. PUBLIC SAFETY
-2. TRAVEL
-3. OUTDOOR ACTIVITY
-4. AGRICULTURE
-5. URBAN CONDITIONS
-For each section, give one practical sentence. If a category has no meaningful weather risk, say "No major weather-related concern expected."
-Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly supported hazards. If an official alert is supplied, tell the user to follow it.
-
-Use these exact delimiters so the two outputs can be separated:
-===NWP_INSIGHT===
-[output 1]
-===IMPACT_ADVISORY===
-[output 2]
-
-Do not add any text before the first delimiter or after the second output.`,
-          weather: {
-            location: locationName,
-            current: {
-              temperature: weatherData.current.temperature_2m,
-              humidity: weatherData.current.relative_humidity_2m,
-              wind: weatherData.current.wind_speed_10m,
-            },
-            next24Hours,
-            sevenDayForecast,
-            advisories: currentAlerts,
-            nwpComparison: nwp?.comparison
-              ? {
-                  agreement: nwp.comparison.agreement,
-                  temperatureDifference:
-                    nwp.comparison.temperatureDifference,
-                  rainProbabilityDifference:
-                    nwp.comparison.rainProbabilityDifference,
-                  windDifference: nwp.comparison.windDifference,
-                  ecmwf: nwp?.models?.ecmwf?.hourly,
-                  gfs: nwp?.models?.gfs?.hourly,
-                }
-              : undefined,
-          },
-          language: selectedLanguage,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Advanced AI request failed");
-      }
-
-      const data = await response.json();
-      const combinedAnswer = String(data.answer || "");
-
-      const nwpMarker = "===NWP_INSIGHT===";
-      const impactMarker = "===IMPACT_ADVISORY===";
-      const nwpStart = combinedAnswer.indexOf(nwpMarker);
-      const impactStart = combinedAnswer.indexOf(impactMarker);
-
-      if (nwpStart !== -1 && impactStart !== -1 && impactStart > nwpStart) {
-        const parsedNwp = combinedAnswer
-          .slice(nwpStart + nwpMarker.length, impactStart)
-          .trim();
-        const parsedImpact = combinedAnswer
-          .slice(impactStart + impactMarker.length)
-          .trim();
-
-        setNwpInsight(
-          parsedNwp ||
-            "The NWP models show some disagreement, so forecast confidence is reduced."
-        );
-        setImpactAdvisory(
-          parsedImpact ||
-            "No major weather-related concern is identified from the available forecast data."
-        );
-      } else {
-        setNwpInsight(
-          "The NWP models show some disagreement. Consider the forecast less certain when their rainfall, temperature, or wind guidance differs substantially."
-        );
-        setImpactAdvisory(
-          combinedAnswer ||
-            "No major weather-related concern is identified from the available forecast data."
-        );
-      }
-    } catch (error) {
-      console.error("Advanced AI error:", error);
-      setNwpInsight(
-        "The NWP models show some disagreement. Consider the forecast less certain when their rainfall, temperature, or wind guidance differs substantially."
-      );
-      setImpactAdvisory(
-        "Unable to generate the impact advisory right now. Please check the current forecast and official weather warnings."
-      );
-    } finally {
-      setNwpInsightLoading(false);
-      setImpactAdvisoryLoading(false);
-    }
   }
 
   async function generateImpactAdvisory(
