@@ -297,7 +297,9 @@ IMPORTANT RULES:
 - Do not guarantee that conditions will be safe or unsafe.
 - If the supplied data is insufficient, clearly say that.
 - Do not make up official warnings.
-- Keep the final answer concise: normally 3-6 sentences.
+- Give a useful, natural answer of about 60-100 words when the question needs explanation.
+- For simple yes/no questions, give the conclusion first, then 2-4 short supporting sentences using the supplied weather data.
+- Never answer with only a few words unless the user explicitly asks for a one-word or very short answer.
 - Give the conclusion first, then the main reasons.
 - Use °C for temperature when temperature is provided.
 - Be practical and direct.
@@ -353,8 +355,8 @@ Answer the question using the supplied forecast. Reason over the data instead of
             },
           ],
           generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 220,
+            temperature: 0.35,
+            maxOutputTokens: 400,
           },
         }),
       }
