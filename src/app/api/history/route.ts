@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+export const maxDuration = 30;
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
 
   const latitude = Number(searchParams.get("latitude"));
   const longitude = Number(searchParams.get("longitude"));
   const requestedYears = Number(searchParams.get("years") || "1");
+
   const years = Math.min(
     Math.max(Number.isFinite(requestedYears) ? requestedYears : 1, 1),
     5
@@ -25,10 +29,17 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // NASA POWER provides daily meteorological data from 1981 to near real time.
-  // Keep a one-day buffer so the request does not depend on today's partial data.
+  /*
+   * NASA POWER daily meteorological data is near-real-time rather than
+   * guaranteed to contain yesterday's data. NASA documents a typical
+   * near-real-time delay of roughly 3-7 days.
+   *
+   * Therefore, intentionally end the historical range 7 days before today.
+   * This avoids production failures caused by requesting dates that have
+   * not yet been published by NASA POWER.
+   */
   const end = new Date();
-  end.setUTCDate(end.getUTCDate() - 1);
+  end.setUTCDate(end.getUTCDate() - 7);
 
   const start = new Date(end);
   start.setUTCFullYear(start.getUTCFullYear() - years);
@@ -48,14 +59,14 @@ export async function GET(request: NextRequest) {
     "T2M,T2M_MAX,T2M_MIN,PRECTOTCORR"
   );
   apiUrl.searchParams.set("community", "SB");
-  apiUrl.searchParams.set("longitude", longitude.toString());
-  apiUrl.searchParams.set("latitude", latitude.toString());
+  apiUrl.searchParams.set("longitude", longitude.toFixed(4));
+  apiUrl.searchParams.set("latitude", latitude.toFixed(4));
   apiUrl.searchParams.set("start", startDate);
   apiUrl.searchParams.set("end", endDate);
   apiUrl.searchParams.set("format", "JSON");
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), 20000);
 
   try {
     console.log("NASA POWER history request:", apiUrl.toString());
@@ -87,6 +98,7 @@ export async function GET(request: NextRequest) {
     }
 
     let data: any;
+
     try {
       data = JSON.parse(responseText);
     } catch {
@@ -223,6 +235,7 @@ export async function GET(request: NextRequest) {
 
     const monthly = Array.from({ length: 12 }, (_, index) => {
       const monthNumber = index + 1;
+
       const values = monthlyMap.get(monthNumber) || {
         mean: [],
         max: [],
@@ -245,6 +258,18 @@ export async function GET(request: NextRequest) {
       monthly[0]
     );
 
+    const averageMaxTemperature = average(
+      dates
+        .map((date) => Number(parameters.T2M_MAX?.[date]))
+        .filter(Number.isFinite)
+    );
+
+    const averageMinTemperature = average(
+      dates
+        .map((date) => Number(parameters.T2M_MIN?.[date]))
+        .filter(Number.isFinite)
+    );
+
     return NextResponse.json({
       success: true,
       location: { latitude, longitude },
@@ -256,20 +281,8 @@ export async function GET(request: NextRequest) {
       yearly,
       monthly,
       summary: {
-        averageMaxTemperature: Number(
-          average(
-            dates
-              .map((date) => Number(parameters.T2M_MAX?.[date]))
-              .filter(Number.isFinite)
-          ).toFixed(1)
-        ),
-        averageMinTemperature: Number(
-          average(
-            dates
-              .map((date) => Number(parameters.T2M_MIN?.[date]))
-              .filter(Number.isFinite)
-          ).toFixed(1)
-        ),
+        averageMaxTemperature: Number(averageMaxTemperature.toFixed(1)),
+        averageMinTemperature: Number(averageMinTemperature.toFixed(1)),
         totalRainfall: Number(totalRainfall.toFixed(1)),
         hottestTemperature:
           hottestTemperature === -Infinity
@@ -291,7 +304,7 @@ export async function GET(request: NextRequest) {
         success: false,
         error:
           error?.name === "AbortError"
-            ? "Historical weather provider timed out after 15 seconds."
+            ? "Historical weather provider timed out."
             : error?.message || "Unable to retrieve historical weather data.",
         errorName: error?.name || "UnknownError",
         requestedRange: { startDate, endDate, years },
