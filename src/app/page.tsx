@@ -116,7 +116,7 @@ export default function Home() {
 
   const [historicalData, setHistoricalData] =
     useState<HistoricalData | null>(null);
-  const [historicalYears, setHistoricalYears] = useState(5);
+  const [historicalYears, setHistoricalYears] = useState(1);
   const [historicalLoading, setHistoricalLoading] = useState(false);
   const [historicalError, setHistoricalError] = useState("");
 
