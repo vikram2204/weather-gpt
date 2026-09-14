@@ -272,17 +272,16 @@ export async function POST(request: NextRequest) {
 
     const reasoningHints = buildReasoningHints(question, weather);
 
-    const response = await fetch("http://127.0.0.1:11434/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "qwen2.5:0.5b",
-        messages: [
-          {
-            role: "system",
-            content: `
+    const apiKey = process.env.GEMINI_API_KEY;
+
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "GEMINI_API_KEY is not configured on the server." },
+        { status: 500 }
+      );
+    }
+
+    const systemPrompt = `
 You are WeatherGPT, an AI weather reasoning assistant.
 
 Your job is to INTERPRET supplied meteorological forecast data and turn it into a concise, practical answer.
@@ -308,11 +307,9 @@ IMPORTANT RULES:
 
 Reasoning hints generated from the supplied data:
 ${reasoningHints}
-            `,
-          },
-          {
-            role: "user",
-            content: `
+`;
+
+    const userPrompt = `
 Requested response language:
 ${language}
 
@@ -335,35 +332,55 @@ User question:
 ${question}
 
 Answer the question using the supplied forecast. Reason over the data instead of merely listing it.
-            `,
-          },
-        ],
-        stream: false,
-        options: {
-          temperature: 0.2,
-          num_predict: 220,
+`;
+
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
         },
-      }),
-    });
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: systemPrompt }],
+          },
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: userPrompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 220,
+          },
+        }),
+      }
+    );
 
     if (!response.ok) {
-      throw new Error(`Ollama request failed: ${response.status}`);
+      const errorText = await response.text();
+      console.error("Gemini API error:", response.status, errorText);
+      throw new Error(`Gemini request failed: ${response.status}`);
     }
 
     const data = await response.json();
+    const answer = data.candidates?.[0]?.content?.parts
+      ?.map((part: { text?: string }) => part.text || "")
+      .join(" ")
+      .trim();
 
     return NextResponse.json({
-      answer:
-        data.message?.content ||
-        "I couldn't generate a weather answer.",
+      answer: answer || "I couldn't generate a weather answer.",
     });
   } catch (error) {
-    console.error("Ollama error:", error);
+    console.error("Gemini error:", error);
 
     return NextResponse.json(
       {
-        error:
-          "Local AI service failed. Make sure Ollama is running.",
+        error: "Cloud AI service failed. Please try again.",
       },
       { status: 500 }
     );
