@@ -3,6 +3,207 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
+type DailyRecord = {
+  date: string;
+  mean: number;
+  max: number;
+  min: number;
+  rain: number;
+};
+
+function average(values: number[]) {
+  return values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : 0;
+}
+
+function buildResponse(
+  latitude: number,
+  longitude: number,
+  years: number,
+  startDate: string,
+  endDate: string,
+  records: DailyRecord[],
+  source: string,
+  note: string
+) {
+  const yearlyMap = new Map<
+    number,
+    { temperatures: number[]; rainfall: number[] }
+  >();
+
+  const monthlyMap = new Map<
+    number,
+    { mean: number[]; max: number[]; min: number[]; rainfall: number[] }
+  >();
+
+  let hottestTemperature = -Infinity;
+  let totalRainfall = 0;
+
+  for (const record of records) {
+    const year = Number(record.date.slice(0, 4));
+    const month = Number(record.date.slice(5, 7));
+
+    if (!yearlyMap.has(year)) {
+      yearlyMap.set(year, { temperatures: [], rainfall: [] });
+    }
+
+    if (!monthlyMap.has(month)) {
+      monthlyMap.set(month, {
+        mean: [],
+        max: [],
+        min: [],
+        rainfall: [],
+      });
+    }
+
+    const yearly = yearlyMap.get(year)!;
+    const monthly = monthlyMap.get(month)!;
+
+    if (Number.isFinite(record.mean)) {
+      yearly.temperatures.push(record.mean);
+      monthly.mean.push(record.mean);
+    }
+
+    if (Number.isFinite(record.max)) {
+      monthly.max.push(record.max);
+      hottestTemperature = Math.max(hottestTemperature, record.max);
+    }
+
+    if (Number.isFinite(record.min)) {
+      monthly.min.push(record.min);
+    }
+
+    if (Number.isFinite(record.rain) && record.rain >= 0) {
+      yearly.rainfall.push(record.rain);
+      monthly.rainfall.push(record.rain);
+      totalRainfall += record.rain;
+    }
+  }
+
+  const yearly = Array.from(yearlyMap.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([year, values]) => ({
+      year,
+      averageTemperature: Number(
+        average(values.temperatures).toFixed(1)
+      ),
+      rainfall: Number(
+        values.rainfall
+          .reduce((sum, value) => sum + value, 0)
+          .toFixed(1)
+      ),
+    }));
+
+  const monthNames = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+
+  const monthly = Array.from({ length: 12 }, (_, index) => {
+    const monthNumber = index + 1;
+
+    const values = monthlyMap.get(monthNumber) || {
+      mean: [],
+      max: [],
+      min: [],
+      rainfall: [],
+    };
+
+    return {
+      month: monthNames[index],
+      averageTemperature: Number(average(values.mean).toFixed(1)),
+      averageMaxTemperature: Number(average(values.max).toFixed(1)),
+      averageMinTemperature: Number(average(values.min).toFixed(1)),
+      averageRainfall: Number(average(values.rainfall).toFixed(1)),
+    };
+  });
+
+  const wettest = monthly.reduce(
+    (best, item) =>
+      item.averageRainfall > best.averageRainfall ? item : best,
+    monthly[0]
+  );
+
+  return NextResponse.json({
+    success: true,
+    location: { latitude, longitude },
+    period: {
+      startDate,
+      endDate,
+      years,
+    },
+    yearly,
+    monthly,
+    summary: {
+      averageMaxTemperature: Number(
+        average(records.map((record) => record.max).filter(Number.isFinite)).toFixed(1)
+      ),
+      averageMinTemperature: Number(
+        average(records.map((record) => record.min).filter(Number.isFinite)).toFixed(1)
+      ),
+      totalRainfall: Number(totalRainfall.toFixed(1)),
+      hottestTemperature:
+        hottestTemperature === -Infinity
+          ? null
+          : Number(hottestTemperature.toFixed(1)),
+      wettestMonth: wettest?.month ?? null,
+      wettestMonthRainfall: wettest
+        ? Number(wettest.averageRainfall.toFixed(1))
+        : null,
+    },
+    source,
+    note,
+  });
+}
+
+async function fetchJson(
+  url: string,
+  timeoutMs = 12000
+): Promise<{ ok: boolean; status: number; data: any; text: string }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "WeatherGPT/1.0 historical-weather",
+      },
+    });
+
+    const text = await response.text();
+
+    let data: any = null;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // Keep data null; caller gets the provider text.
+    }
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      data,
+      text,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
 
@@ -29,289 +230,207 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  /*
-   * NASA POWER daily meteorological data is near-real-time rather than
-   * guaranteed to contain yesterday's data. NASA documents a typical
-   * near-real-time delay of roughly 3-7 days.
-   *
-   * Therefore, intentionally end the historical range 7 days before today.
-   * This avoids production failures caused by requesting dates that have
-   * not yet been published by NASA POWER.
-   */
+  // Use a 7-day buffer because NASA POWER near-real-time data can lag
+  // by several days.
   const end = new Date();
   end.setUTCDate(end.getUTCDate() - 7);
 
   const start = new Date(end);
   start.setUTCFullYear(start.getUTCFullYear() - years);
 
-  const formatDate = (date: Date) =>
-    date.toISOString().slice(0, 10).replace(/-/g, "");
+  const isoDate = (date: Date) => date.toISOString().slice(0, 10);
 
-  const startDate = formatDate(start);
-  const endDate = formatDate(end);
+  const startDate = isoDate(start);
+  const endDate = isoDate(end);
 
-  const apiUrl = new URL(
+  /*
+   * Provider 1: NASA POWER
+   *
+   * This is the preferred source because it provides long-term daily
+   * meteorological data dating back to 1981.
+   */
+  const nasaUrl = new URL(
     "https://power.larc.nasa.gov/api/temporal/daily/point"
   );
 
-  apiUrl.searchParams.set(
+  nasaUrl.searchParams.set(
     "parameters",
     "T2M,T2M_MAX,T2M_MIN,PRECTOTCORR"
   );
-  apiUrl.searchParams.set("community", "SB");
-  apiUrl.searchParams.set("longitude", longitude.toFixed(4));
-  apiUrl.searchParams.set("latitude", latitude.toFixed(4));
-  apiUrl.searchParams.set("start", startDate);
-  apiUrl.searchParams.set("end", endDate);
-  apiUrl.searchParams.set("format", "JSON");
+  nasaUrl.searchParams.set("community", "SB");
+  nasaUrl.searchParams.set("longitude", longitude.toFixed(4));
+  nasaUrl.searchParams.set("latitude", latitude.toFixed(4));
+  nasaUrl.searchParams.set("start", startDate.replace(/-/g, ""));
+  nasaUrl.searchParams.set("end", endDate.replace(/-/g, ""));
+  nasaUrl.searchParams.set("format", "JSON");
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
+  let nasaProviderStatus: number | string = "unavailable";
 
   try {
-    console.log("NASA POWER history request:", apiUrl.toString());
+    console.log("Historical weather NASA request:", nasaUrl.toString());
 
-    const response = await fetch(apiUrl.toString(), {
-      signal: controller.signal,
-      cache: "no-store",
-    });
+    const nasa = await fetchJson(nasaUrl.toString(), 12000);
+    nasaProviderStatus = nasa.status;
 
-    const responseText = await response.text();
+    if (nasa.ok) {
+      const parameters = nasa.data?.properties?.parameter;
 
-    if (!response.ok) {
+      if (parameters?.T2M) {
+        const dates = Object.keys(parameters.T2M).sort();
+
+        const records: DailyRecord[] = dates
+          .map((dateKey) => ({
+            date: `${dateKey.slice(0, 4)}-${dateKey.slice(
+              4,
+              6
+            )}-${dateKey.slice(6, 8)}`,
+            mean: Number(parameters.T2M?.[dateKey]),
+            max: Number(parameters.T2M_MAX?.[dateKey]),
+            min: Number(parameters.T2M_MIN?.[dateKey]),
+            rain: Number(parameters.PRECTOTCORR?.[dateKey]),
+          }))
+          .filter(
+            (record) =>
+              Number.isFinite(record.mean) ||
+              Number.isFinite(record.max) ||
+              Number.isFinite(record.min)
+          );
+
+        if (records.length) {
+          return buildResponse(
+            latitude,
+            longitude,
+            years,
+            startDate,
+            endDate,
+            records,
+            "NASA POWER Daily Meteorological Data",
+            "Historical climate data is provided for trend analysis and is not an official IMD observation or warning."
+          );
+        }
+      }
+    }
+
+    console.warn(
+      "NASA POWER unavailable; using Open-Meteo climate fallback.",
+      nasa.status,
+      nasa.text.slice(0, 500)
+    );
+  } catch (error) {
+    console.warn(
+      "NASA POWER request failed; using Open-Meteo climate fallback.",
+      error
+    );
+  }
+
+  /*
+   * Provider 2: Open-Meteo Climate API fallback
+   *
+   * This prevents the History section from failing completely when
+   * NASA POWER is temporarily unavailable from a serverless region.
+   * The climate API provides daily temperature and precipitation model
+   * data and is explicitly intended for long-term climate analysis.
+   */
+  const climateUrl = new URL(
+    "https://climate-api.open-meteo.com/v1/climate"
+  );
+
+  climateUrl.searchParams.set("latitude", latitude.toFixed(4));
+  climateUrl.searchParams.set("longitude", longitude.toFixed(4));
+  climateUrl.searchParams.set("start_date", startDate);
+  climateUrl.searchParams.set("end_date", endDate);
+  climateUrl.searchParams.set("models", "EC_Earth3P_HR");
+  climateUrl.searchParams.set(
+    "daily",
+    "temperature_2m_mean,temperature_2m_max,temperature_2m_min,precipitation_sum"
+  );
+  climateUrl.searchParams.set("timezone", "auto");
+  climateUrl.searchParams.set("temperature_unit", "celsius");
+  climateUrl.searchParams.set("precipitation_unit", "mm");
+
+  try {
+    console.log("Historical weather climate fallback:", climateUrl.toString());
+
+    const climate = await fetchJson(climateUrl.toString(), 15000);
+
+    if (!climate.ok) {
       console.error(
-        "NASA POWER history error:",
-        response.status,
-        responseText.slice(0, 2000)
+        "Open-Meteo climate fallback failed:",
+        climate.status,
+        climate.text.slice(0, 1500)
       );
 
       return NextResponse.json(
         {
           success: false,
-          error: "Historical weather provider returned an error.",
-          providerStatus: response.status,
-          providerResponse: responseText.slice(0, 2000),
+          error: "Historical weather providers are temporarily unavailable.",
+          providers: {
+            nasaPower: {
+              status: nasaProviderStatus,
+            },
+            openMeteoClimate: {
+              status: climate.status,
+              response: climate.text.slice(0, 1000),
+            },
+          },
           requestedRange: { startDate, endDate, years },
         },
         { status: 502 }
       );
     }
 
-    let data: any;
+    const daily = climate.data?.daily;
 
-    try {
-      data = JSON.parse(responseText);
-    } catch {
+    if (
+      !daily?.time ||
+      !Array.isArray(daily.time) ||
+      !daily.time.length
+    ) {
       return NextResponse.json(
         {
           success: false,
-          error: "Historical weather provider returned invalid JSON.",
-          providerResponse: responseText.slice(0, 2000),
+          error: "Historical climate provider returned no daily data.",
           requestedRange: { startDate, endDate, years },
         },
         { status: 502 }
       );
     }
 
-    const parameters = data?.properties?.parameter;
-
-    if (!parameters?.T2M) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "NASA POWER returned no temperature data.",
-          providerResponse: data,
-          requestedRange: { startDate, endDate, years },
-        },
-        { status: 502 }
-      );
-    }
-
-    const dates = Object.keys(parameters.T2M).sort();
-
-    if (!dates.length) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "NASA POWER returned no daily historical data.",
-          requestedRange: { startDate, endDate, years },
-        },
-        { status: 502 }
-      );
-    }
-
-    const yearlyMap = new Map<
-      number,
-      { temperatures: number[]; rainfall: number[] }
-    >();
-
-    const monthlyMap = new Map<
-      number,
-      { mean: number[]; max: number[]; min: number[]; rainfall: number[] }
-    >();
-
-    let hottestTemperature = -Infinity;
-    let totalRainfall = 0;
-
-    const average = (values: number[]) =>
-      values.length
-        ? values.reduce((sum, value) => sum + value, 0) / values.length
-        : 0;
-
-    for (const dateKey of dates) {
-      const year = Number(dateKey.slice(0, 4));
-      const month = Number(dateKey.slice(4, 6));
-
-      const mean = Number(parameters.T2M?.[dateKey]);
-      const max = Number(parameters.T2M_MAX?.[dateKey]);
-      const min = Number(parameters.T2M_MIN?.[dateKey]);
-      const rain = Number(parameters.PRECTOTCORR?.[dateKey]);
-
-      if (!yearlyMap.has(year)) {
-        yearlyMap.set(year, { temperatures: [], rainfall: [] });
-      }
-
-      if (!monthlyMap.has(month)) {
-        monthlyMap.set(month, {
-          mean: [],
-          max: [],
-          min: [],
-          rainfall: [],
-        });
-      }
-
-      const yearly = yearlyMap.get(year)!;
-      const monthly = monthlyMap.get(month)!;
-
-      if (Number.isFinite(mean)) {
-        yearly.temperatures.push(mean);
-        monthly.mean.push(mean);
-      }
-
-      if (Number.isFinite(max)) {
-        monthly.max.push(max);
-        hottestTemperature = Math.max(hottestTemperature, max);
-      }
-
-      if (Number.isFinite(min)) {
-        monthly.min.push(min);
-      }
-
-      if (Number.isFinite(rain) && rain >= 0) {
-        yearly.rainfall.push(rain);
-        monthly.rainfall.push(rain);
-        totalRainfall += rain;
-      }
-    }
-
-    const yearly = Array.from(yearlyMap.entries())
-      .sort(([a], [b]) => a - b)
-      .map(([year, values]) => ({
-        year,
-        averageTemperature: Number(
-          average(values.temperatures).toFixed(1)
-        ),
-        rainfall: Number(
-          values.rainfall
-            .reduce((sum, value) => sum + value, 0)
-            .toFixed(1)
-        ),
-      }));
-
-    const monthNames = [
-      "January",
-      "February",
-      "March",
-      "April",
-      "May",
-      "June",
-      "July",
-      "August",
-      "September",
-      "October",
-      "November",
-      "December",
-    ];
-
-    const monthly = Array.from({ length: 12 }, (_, index) => {
-      const monthNumber = index + 1;
-
-      const values = monthlyMap.get(monthNumber) || {
-        mean: [],
-        max: [],
-        min: [],
-        rainfall: [],
-      };
-
-      return {
-        month: monthNames[index],
-        averageTemperature: Number(average(values.mean).toFixed(1)),
-        averageMaxTemperature: Number(average(values.max).toFixed(1)),
-        averageMinTemperature: Number(average(values.min).toFixed(1)),
-        averageRainfall: Number(average(values.rainfall).toFixed(1)),
-      };
-    });
-
-    const wettest = monthly.reduce(
-      (best, item) =>
-        item.averageRainfall > best.averageRainfall ? item : best,
-      monthly[0]
+    const records: DailyRecord[] = daily.time.map(
+      (date: string, index: number) => ({
+        date,
+        mean: Number(daily.temperature_2m_mean?.[index]),
+        max: Number(daily.temperature_2m_max?.[index]),
+        min: Number(daily.temperature_2m_min?.[index]),
+        rain: Number(daily.precipitation_sum?.[index]),
+      })
     );
 
-    const averageMaxTemperature = average(
-      dates
-        .map((date) => Number(parameters.T2M_MAX?.[date]))
-        .filter(Number.isFinite)
+    return buildResponse(
+      latitude,
+      longitude,
+      years,
+      startDate,
+      endDate,
+      records,
+      "Open-Meteo Climate API (EC-Earth3P-HR)",
+      "Historical climate data is model-based and provided for trend analysis. It is not an official IMD observation or warning."
     );
-
-    const averageMinTemperature = average(
-      dates
-        .map((date) => Number(parameters.T2M_MIN?.[date]))
-        .filter(Number.isFinite)
-    );
-
-    return NextResponse.json({
-      success: true,
-      location: { latitude, longitude },
-      period: {
-        startDate: `${startDate.slice(0, 4)}-${startDate.slice(4, 6)}-${startDate.slice(6, 8)}`,
-        endDate: `${endDate.slice(0, 4)}-${endDate.slice(4, 6)}-${endDate.slice(6, 8)}`,
-        years,
-      },
-      yearly,
-      monthly,
-      summary: {
-        averageMaxTemperature: Number(averageMaxTemperature.toFixed(1)),
-        averageMinTemperature: Number(averageMinTemperature.toFixed(1)),
-        totalRainfall: Number(totalRainfall.toFixed(1)),
-        hottestTemperature:
-          hottestTemperature === -Infinity
-            ? null
-            : Number(hottestTemperature.toFixed(1)),
-        wettestMonth: wettest?.month ?? null,
-        wettestMonthRainfall: wettest
-          ? Number(wettest.averageRainfall.toFixed(1))
-          : null,
-      },
-      source: "NASA POWER Daily Meteorological Data",
-      note: "Historical climate data is provided for trend analysis and is not an official IMD observation or warning.",
-    });
   } catch (error: any) {
-    console.error("NASA POWER historical weather error:", error);
+    console.error("Historical climate fallback error:", error);
 
     return NextResponse.json(
       {
         success: false,
         error:
           error?.name === "AbortError"
-            ? "Historical weather provider timed out."
+            ? "Historical weather providers timed out."
             : error?.message || "Unable to retrieve historical weather data.",
         errorName: error?.name || "UnknownError",
         requestedRange: { startDate, endDate, years },
       },
-      { status: 500 }
+      { status: 502 }
     );
-  } finally {
-    clearTimeout(timeout);
   }
 }
+
