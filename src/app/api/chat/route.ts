@@ -365,7 +365,14 @@ Answer the question using the supplied forecast. Reason over the data instead of
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Gemini API error:", response.status, errorText);
-      throw new Error(`Gemini request failed: ${response.status}`);
+      return NextResponse.json(
+        {
+          error: "Gemini API request failed.",
+          geminiStatus: response.status,
+          geminiResponse: errorText,
+        },
+        { status: 502 }
+      );
     }
 
     const data = await response.json();

@@ -251,15 +251,7 @@ export default function Home() {
           nwpPromise,
         ]);
 
-        if (nwpResult) {
-          void generateNWPInsight(
-            nwpResult,
-            data.weather,
-            data.location.name
-          );
-        }
-
-        void generateImpactAdvisory(
+        void generateAdvancedAI(
           data.weather,
           data.location.name,
           data.alerts || [],
@@ -339,15 +331,7 @@ export default function Home() {
           nwpPromise,
         ]);
 
-        if (nwpResult) {
-          void generateNWPInsight(
-            nwpResult,
-            data.weather,
-            data.location.name
-          );
-        }
-
-        void generateImpactAdvisory(
+        void generateAdvancedAI(
           data.weather,
           data.location.name,
           data.alerts || [],
@@ -476,6 +460,145 @@ export default function Home() {
     };
 
     recognition.start();
+  }
+
+  async function generateAdvancedAI(
+    weatherData: WeatherData,
+    locationName: string,
+    currentAlerts: Alert[],
+    nwp?: any
+  ) {
+    try {
+      setNwpInsightLoading(true);
+      setImpactAdvisoryLoading(true);
+      setNwpInsight("");
+      setImpactAdvisory("");
+
+      const next24Hours = weatherData.hourly.time
+        .slice(0, 24)
+        .map((time, index) => ({
+          time,
+          temperature: weatherData.hourly.temperature_2m[index],
+          rainProbability:
+            weatherData.hourly.precipitation_probability[index],
+          humidity: weatherData.hourly.relative_humidity_2m[index],
+          wind: weatherData.hourly.wind_speed_10m[index],
+        }));
+
+      const sevenDayForecast = weatherData.daily.time.map((date, index) => ({
+        date,
+        maxTemperature: weatherData.daily.temperature_2m_max[index],
+        minTemperature: weatherData.daily.temperature_2m_min[index],
+        rainProbability:
+          weatherData.daily.precipitation_probability_max[index],
+        weatherCode: weatherData.daily.weather_code[index],
+        maxWind: weatherData.daily.wind_speed_10m_max[index],
+      }));
+
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          question: `Generate TWO weather intelligence outputs for ${locationName} using ONLY the supplied weather data.
+
+OUTPUT 1 — NWP INSIGHT
+Explain the NWP model disagreement. Compare ECMWF and GFS, identify which variable disagrees most, explain what that means for forecast confidence, and give one practical takeaway. Keep this to 2-4 useful sentences.
+
+OUTPUT 2 — IMPACT ADVISORY
+Return exactly five short sections in this order:
+1. PUBLIC SAFETY
+2. TRAVEL
+3. OUTDOOR ACTIVITY
+4. AGRICULTURE
+5. URBAN CONDITIONS
+For each section, give one practical sentence. If a category has no meaningful weather risk, say "No major weather-related concern expected."
+Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly supported hazards. If an official alert is supplied, tell the user to follow it.
+
+Use these exact delimiters so the two outputs can be separated:
+===NWP_INSIGHT===
+[output 1]
+===IMPACT_ADVISORY===
+[output 2]
+
+Do not add any text before the first delimiter or after the second output.`,
+          weather: {
+            location: locationName,
+            current: {
+              temperature: weatherData.current.temperature_2m,
+              humidity: weatherData.current.relative_humidity_2m,
+              wind: weatherData.current.wind_speed_10m,
+            },
+            next24Hours,
+            sevenDayForecast,
+            advisories: currentAlerts,
+            nwpComparison: nwp?.comparison
+              ? {
+                  agreement: nwp.comparison.agreement,
+                  temperatureDifference:
+                    nwp.comparison.temperatureDifference,
+                  rainProbabilityDifference:
+                    nwp.comparison.rainProbabilityDifference,
+                  windDifference: nwp.comparison.windDifference,
+                  ecmwf: nwp?.models?.ecmwf?.hourly,
+                  gfs: nwp?.models?.gfs?.hourly,
+                }
+              : undefined,
+          },
+          language: selectedLanguage,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Advanced AI request failed");
+      }
+
+      const data = await response.json();
+      const combinedAnswer = String(data.answer || "");
+
+      const nwpMarker = "===NWP_INSIGHT===";
+      const impactMarker = "===IMPACT_ADVISORY===";
+      const nwpStart = combinedAnswer.indexOf(nwpMarker);
+      const impactStart = combinedAnswer.indexOf(impactMarker);
+
+      if (nwpStart !== -1 && impactStart !== -1 && impactStart > nwpStart) {
+        const parsedNwp = combinedAnswer
+          .slice(nwpStart + nwpMarker.length, impactStart)
+          .trim();
+        const parsedImpact = combinedAnswer
+          .slice(impactStart + impactMarker.length)
+          .trim();
+
+        setNwpInsight(
+          parsedNwp ||
+            "The NWP models show some disagreement, so forecast confidence is reduced."
+        );
+        setImpactAdvisory(
+          parsedImpact ||
+            "No major weather-related concern is identified from the available forecast data."
+        );
+      } else {
+        setNwpInsight(
+          "The NWP models show some disagreement. Consider the forecast less certain when their rainfall, temperature, or wind guidance differs substantially."
+        );
+        setImpactAdvisory(
+          combinedAnswer ||
+            "No major weather-related concern is identified from the available forecast data."
+        );
+      }
+    } catch (error) {
+      console.error("Advanced AI error:", error);
+      setNwpInsight(
+        "The NWP models show some disagreement. Consider the forecast less certain when their rainfall, temperature, or wind guidance differs substantially."
+      );
+      setImpactAdvisory(
+        "Unable to generate the impact advisory right now. Please check the current forecast and official weather warnings."
+      );
+    } finally {
+      setNwpInsightLoading(false);
+      setImpactAdvisoryLoading(false);
+    }
   }
 
   async function generateImpactAdvisory(
