@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
+import "./premium.css";
 
 const WeatherMap = dynamic(
   () => import("./components/WeatherMap"),
@@ -39,6 +40,7 @@ type WeatherData = {
     precipitation_probability: number[];
     relative_humidity_2m: number[];
     wind_speed_10m: number[];
+    weather_code: number[];
   };
 
   daily: {
@@ -123,6 +125,9 @@ export default function Home() {
 
   const [impactAdvisory, setImpactAdvisory] = useState("");
   const [impactAdvisoryLoading, setImpactAdvisoryLoading] = useState(false);
+
+  const [activeSection, setActiveSection] = useState("current");
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
     loadWeatherByCoordinates(17.385, 78.4867);
@@ -281,14 +286,14 @@ export default function Home() {
         ]);
 
         if (nwpResult) {
-          void generateNWPInsight(
+          generateNWPInsight(
             nwpResult,
             data.weather,
             data.location.name
           );
         }
 
-        void generateImpactAdvisory(
+        generateImpactAdvisory(
           data.weather,
           data.location.name,
           data.alerts || [],
@@ -369,14 +374,14 @@ export default function Home() {
         ]);
 
         if (nwpResult) {
-          void generateNWPInsight(
+          generateNWPInsight(
             nwpResult,
             data.weather,
             data.location.name
           );
         }
 
-        void generateImpactAdvisory(
+        generateImpactAdvisory(
           data.weather,
           data.location.name,
           data.alerts || [],
@@ -507,7 +512,7 @@ export default function Home() {
     recognition.start();
   }
 
-  async function generateImpactAdvisory(
+  function generateImpactAdvisory(
     weatherData: WeatherData,
     locationName: string,
     currentAlerts: Alert[],
@@ -515,89 +520,82 @@ export default function Home() {
   ) {
     try {
       setImpactAdvisoryLoading(true);
-      setImpactAdvisory("");
 
-      const next24Hours = weatherData.hourly.time
+      const intelligenceAlerts = currentAlerts || [];
+      const severeAlerts = intelligenceAlerts.filter(
+        (alert) => alert.level === "high" || alert.level === "extreme"
+      );
+
+      const maxTemp = Math.max(
+        ...weatherData.daily.temperature_2m_max.filter(Number.isFinite)
+      );
+
+      const maxWind = Math.max(
+        ...weatherData.daily.wind_speed_10m_max.filter(Number.isFinite)
+      );
+
+      const maxRain = Math.max(
+        ...weatherData.hourly.precipitation_probability
+          .slice(0, 24)
+          .filter(Number.isFinite)
+      );
+
+      const thunderstorm = weatherData.hourly.weather_code
         .slice(0, 24)
-        .map((time, index) => ({
-          time,
-          temperature: weatherData.hourly.temperature_2m[index],
-          rainProbability:
-            weatherData.hourly.precipitation_probability[index],
-          humidity:
-            weatherData.hourly.relative_humidity_2m[index],
-          wind: weatherData.hourly.wind_speed_10m[index],
-        }));
+        .some((code) => [95, 96, 99].includes(code));
 
-      const sevenDayForecast = weatherData.daily.time.map((date, index) => ({
-        date,
-        maxTemperature: weatherData.daily.temperature_2m_max[index],
-        minTemperature: weatherData.daily.temperature_2m_min[index],
-        rainProbability:
-          weatherData.daily.precipitation_probability_max[index],
-        weatherCode: weatherData.daily.weather_code[index],
-        maxWind: weatherData.daily.wind_speed_10m_max[index],
-      }));
+      const fog = weatherData.hourly.weather_code
+        .slice(0, 24)
+        .some((code) => [45, 48].includes(code));
 
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          question: `Generate an AI impact-based weather advisory for ${locationName}.
+      const nwpAgreement = nwp?.comparison?.agreement;
 
-Use ONLY the supplied weather data. Do not invent weather values or official warnings.
+      const publicSafety =
+        severeAlerts.length > 0
+          ? `⚠️ ${severeAlerts[0].message}`
+          : thunderstorm
+            ? "⚠️ Thunderstorm-related conditions appear in the supplied forecast. Avoid exposed outdoor areas during the affected period and follow official warnings."
+            : maxTemp >= 40
+              ? "⚠️ Extreme heat is indicated in the forecast. Stay hydrated and limit prolonged outdoor exposure during peak heat."
+              : fog
+                ? "⚠️ Fog is indicated in the forecast. Visibility may be reduced, especially during the affected hours."
+                : "No major weather-related public safety concern is identified from the supplied forecast.";
 
-Return exactly five short sections in this order:
-1. PUBLIC SAFETY
-2. TRAVEL
-3. OUTDOOR ACTIVITY
-4. AGRICULTURE
-5. URBAN CONDITIONS
+      const travel =
+        thunderstorm || maxWind >= 40 || fog || maxRain >= 70
+          ? "Travel may require extra caution because the forecast indicates rain, strong wind, thunderstorms or reduced visibility during part of the period."
+          : "No major weather-related travel concern is identified from the supplied forecast.";
 
-For each section, give one practical sentence. If a category has no meaningful weather risk, say "No major weather-related concern expected."
+      const outdoor =
+        maxRain >= 60 || thunderstorm || maxTemp >= 37 || maxWind >= 40
+          ? "Outdoor activities should be planned around the lower-risk hours because rain, heat, wind or thunderstorms may affect conditions."
+          : "Outdoor activities look broadly manageable based on the supplied forecast.";
 
-Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly supported hazards. If an official alert is supplied, tell the user to follow it. Keep the response concise and practical.`,
-          weather: {
-            location: locationName,
-            current: {
-              temperature: weatherData.current.temperature_2m,
-              humidity: weatherData.current.relative_humidity_2m,
-              wind: weatherData.current.wind_speed_10m,
-            },
-            next24Hours,
-            sevenDayForecast,
-            advisories: currentAlerts,
-            nwpComparison: nwp?.comparison
-              ? {
-                  agreement: nwp.comparison.agreement,
-                  temperatureDifference:
-                    nwp.comparison.temperatureDifference,
-                  rainProbabilityDifference:
-                    nwp.comparison.rainProbabilityDifference,
-                  windDifference: nwp.comparison.windDifference,
-                }
-              : undefined,
-          },
-          language: selectedLanguage,
-        }),
-      });
+      const agriculture =
+        maxRain >= 60
+          ? "Rainfall may affect field work and irrigation planning; use the hourly rain outlook when scheduling outdoor agricultural work."
+          : maxTemp >= 37
+            ? "High temperatures may increase heat and water stress for crops and livestock; plan sensitive work outside peak heat."
+            : "No major weather-related agricultural concern is identified from the supplied forecast.";
 
-      if (!response.ok) {
-        throw new Error("Impact advisory request failed");
-      }
+      const urban =
+        maxRain >= 70
+          ? "Heavy rainfall risk may affect drainage, waterlogging and local travel in vulnerable areas."
+          : maxWind >= 40
+            ? "Stronger winds may affect exposed structures, trees and outdoor infrastructure."
+            : "No major weather-related urban condition is identified from the supplied forecast.";
 
-      const data = await response.json();
+      const modelNote = nwpAgreement
+        ? `\n\nNWP model consistency: ${nwpAgreement}. This is a model-guidance signal, not an official warning.`
+        : "";
 
       setImpactAdvisory(
-        data.answer ||
-          "No major weather-related concern is identified from the available forecast data."
+        `PUBLIC SAFETY\n${publicSafety}\n\nTRAVEL\n${travel}\n\nOUTDOOR ACTIVITY\n${outdoor}\n\nAGRICULTURE\n${agriculture}\n\nURBAN CONDITIONS\n${urban}${modelNote}`
       );
     } catch (error) {
       console.error("Impact advisory error:", error);
       setImpactAdvisory(
-        "Unable to generate the impact advisory right now. Please check the current forecast and official weather warnings."
+        `Unable to calculate the impact advisory for ${locationName} from the supplied forecast data.`
       );
     } finally {
       setImpactAdvisoryLoading(false);
@@ -708,84 +706,72 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
     });
   }
 
-  async function generateNWPInsight(
+  function generateNWPInsight(
     nwp: any,
     weatherData: WeatherData,
     locationName: string
   ) {
     try {
       setNwpInsightLoading(true);
-      setNwpInsight("");
 
-      const nwpWeatherData = {
-        location: {
-          name: locationName,
-          latitude,
-          longitude,
-        },
-        current: {
-          temperature: weatherData.current.temperature_2m,
-          humidity: weatherData.current.relative_humidity_2m,
-          windSpeed: weatherData.current.wind_speed_10m,
-        },
-        next24Hours: weatherData.hourly.time.slice(0, 12).map(
-          (time, index) => ({
-            time,
-            temperature: weatherData.hourly.temperature_2m[index],
-            rainProbability:
-              weatherData.hourly.precipitation_probability[index],
-            humidity: weatherData.hourly.relative_humidity_2m[index],
-            wind: weatherData.hourly.wind_speed_10m[index],
-          })
-        ),
-        sevenDayForecast: weatherData.daily.time.map((date, index) => ({
-          date,
-          maxTemperature: weatherData.daily.temperature_2m_max[index],
-          minTemperature: weatherData.daily.temperature_2m_min[index],
-          rainProbability:
-            weatherData.daily.precipitation_probability_max[index],
-          weatherCode: weatherData.daily.weather_code[index],
-          maxWind: weatherData.daily.wind_speed_10m_max[index],
-        })),
-        nwpComparison: {
-          agreement: nwp?.comparison?.agreement,
-          temperatureDifference:
-            nwp?.comparison?.temperatureDifference,
-          rainProbabilityDifference:
-            nwp?.comparison?.rainProbabilityDifference,
-          windDifference: nwp?.comparison?.windDifference,
-          ecmwf: nwp?.models?.ecmwf?.hourly,
-          gfs: nwp?.models?.gfs?.hourly,
-        },
-      };
+      const comparison = nwp?.comparison ?? {};
+      const tempDiff = Number(comparison.temperatureDifference);
+      const rainDiff = Number(comparison.rainProbabilityDifference);
+      const windDiff = Number(comparison.windDifference);
 
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const differences = [
+        {
+          name: "rain probability",
+          value: Number.isFinite(rainDiff) ? rainDiff : -1,
+          unit: "percentage points",
         },
-        body: JSON.stringify({
-          question:
-            "Explain the NWP model disagreement for this location. Compare ECMWF and GFS, identify which weather variable disagrees most, explain what that means for forecast confidence, and give one practical takeaway.",
-          weather: nwpWeatherData,
-          language: selectedLanguage,
-        }),
-      });
+        {
+          name: "wind",
+          value: Number.isFinite(windDiff) ? windDiff : -1,
+          unit: "km/h",
+        },
+        {
+          name: "temperature",
+          value: Number.isFinite(tempDiff) ? tempDiff : -1,
+          unit: "°C",
+        },
+      ].filter((item) => item.value >= 0);
 
-      if (!response.ok) {
-        throw new Error("NWP AI request failed");
+      differences.sort((a, b) => b.value - a.value);
+
+      const largestDifference = differences[0];
+      const agreement = comparison.agreement || "insufficient-data";
+
+      let interpretation = "";
+
+      if (agreement === "high") {
+        interpretation =
+          "ECMWF and GFS are relatively consistent, so the supplied model guidance has stronger agreement.";
+      } else if (agreement === "moderate") {
+        interpretation =
+          "The models show some disagreement, so the forecast should be treated with moderate uncertainty.";
+      } else if (agreement === "low") {
+        interpretation =
+          "The models differ substantially, so confidence in the affected forecast variables is lower.";
+      } else {
+        interpretation =
+          "There is not enough model agreement information to assess confidence reliably.";
       }
 
-      const data = await response.json();
+      const takeaway = largestDifference
+        ? `The largest model difference is in ${largestDifference.name} at about ${largestDifference.value.toFixed(1)} ${largestDifference.unit}.`
+        : "The available model comparison does not contain enough numeric differences for a detailed comparison.";
+
+      const currentTemp = Number(weatherData.current.temperature_2m);
+      const currentWind = Number(weatherData.current.wind_speed_10m);
 
       setNwpInsight(
-        data.answer ||
-          "The models disagree, so forecast confidence is reduced."
+        `${interpretation} ${takeaway} Current conditions in ${locationName} are about ${Math.round(currentTemp)}°C with winds around ${Math.round(currentWind)} km/h. Use the model comparison as guidance and follow official IMD warnings when available.`
       );
     } catch (error) {
-      console.error("NWP AI insight error:", error);
+      console.error("NWP insight error:", error);
       setNwpInsight(
-        "The NWP models show some disagreement. Consider the forecast less certain when their rainfall, temperature, or wind guidance differs substantially."
+        "The NWP comparison is available, but there is not enough information to generate a detailed model interpretation."
       );
     } finally {
       setNwpInsightLoading(false);
@@ -864,6 +850,7 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
             humidity:
               weather.hourly.relative_humidity_2m[index],
             wind: weather.hourly.wind_speed_10m[index],
+            weatherCode: weather.hourly.weather_code[index],
           })),
 
         sevenDayForecast: weather.daily.time.map(
@@ -962,11 +949,13 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
   }
 
   const currentCode =
-    weather?.daily.weather_code?.[0] ?? 0;
+    weather?.hourly.weather_code?.[0] ??
+    weather?.daily.weather_code?.[0] ??
+    0;
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[#070b14] text-slate-100">
-      {/* SOFT IPHONE-WEATHER BACKGROUND */}
+    <main className={`premium-app theme-${theme} min-h-screen overflow-x-hidden bg-[#070b14] text-slate-100`}>
+      {/* PREMIUM ATMOSPHERIC BACKGROUND */}
       <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
         <div className="absolute left-[-15%] top-[-10%] h-[420px] w-[420px] rounded-full bg-cyan-400/10 blur-[110px]" />
         <div className="absolute right-[-15%] top-[10%] h-[430px] w-[430px] rounded-full bg-indigo-500/10 blur-[120px]" />
@@ -984,17 +973,28 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
               WeatherGPT
             </h1>
             <p className="text-[11px] text-slate-500">
-              AI Weather Intelligence
+              Weather Intelligence Engine
             </p>
           </div>
         </div>
 
-        <button
-          onClick={detectLocation}
-          className="rounded-full bg-white/[0.065] px-4 py-2 text-xs font-semibold text-slate-200 shadow-lg shadow-black/20 ring-1 ring-white/10 backdrop-blur-xl transition hover:bg-white/10"
-        >
-          📍 My Location
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className="premium-theme-toggle"
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+          >
+            <span>{theme === "dark" ? "☀️" : "🌙"}</span>
+          </button>
+          <button
+            onClick={detectLocation}
+            className="premium-location-button rounded-full bg-white/[0.065] px-4 py-2 text-xs font-semibold text-slate-200 shadow-lg shadow-black/20 ring-1 ring-white/10 backdrop-blur-xl transition hover:bg-white/10"
+          >
+            <span>⌖</span> My Location
+          </button>
+        </div>
       </header>
 
       <div className="mx-auto max-w-5xl px-4 pb-16 sm:px-6">
@@ -1035,6 +1035,50 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
           )}
         </section>
 
+        {/* QUICK SECTION NAVIGATION */}
+        {!loading && weather && (
+          <section className="sticky top-3 z-40 mb-5">
+            <div className="rounded-[24px] border border-white/10 bg-[#0b1220]/90 p-2 shadow-2xl shadow-black/30 backdrop-blur-2xl">
+              <div className="flex gap-1.5 overflow-x-auto">
+                {[
+                  ["current", "☀️", "Now"],
+                  ["hourly", "🕐", "Hourly"],
+                  ["daily", "📅", "7 Days"],
+                  ["map", "🗺️", "Map"],
+                  ["alerts", "⚠️", "Alerts"],
+                  ["ai", "✨", "AI"],
+                  ["nwp", "📡", "NWP"],
+                  ["history", "📊", "Climate"],
+                  ["features", "🚀", "Features"],
+                ].map(([id, icon, label]) => {
+                  const active = activeSection === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setActiveSection(id)}
+                      className={`flex shrink-0 items-center gap-1.5 rounded-[17px] px-3.5 py-2.5 text-[11px] font-semibold transition-all duration-200 ${
+                        active
+                          ? "bg-white text-slate-950 shadow-lg shadow-cyan-500/10"
+                          : "text-slate-400 hover:bg-white/[0.07] hover:text-white"
+                      }`}
+                    >
+                      <span>{icon}</span>
+                      <span>{label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex items-center justify-between px-2">
+                <p className="text-[9px] uppercase tracking-[0.18em] text-slate-600">
+                  Weather modules
+                </p>
+                <p className="text-[9px] text-slate-600">Select a section</p>
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* LOADING */}
         {loading ? (
           <div className="flex min-h-[650px] items-center justify-center">
@@ -1048,6 +1092,8 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
         ) : weather ? (
           <>
             {/* ========================================================= */}
+            {activeSection === "current" && (
+              <>
             {/* 1. CURRENT WEATHER — FIRST */}
             {/* ========================================================= */}
             <section className="relative isolate overflow-hidden rounded-[34px] border border-white/10 bg-[#071426] p-6 text-white shadow-2xl shadow-blue-950/40 sm:p-8">
@@ -1156,6 +1202,11 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
               </div>
             </section>
 
+              </>
+            )}
+
+            {activeSection === "hourly" && (
+              <>
             {/* 2. 24 HOURS — SECOND */}
             {/* ========================================================= */}
             <section className="mt-5">
@@ -1186,9 +1237,7 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
 
                       <div className="my-3 text-2xl">
                         {getWeatherEmoji(
-                          weather.daily.weather_code[
-                            Math.min(index, weather.daily.weather_code.length - 1)
-                          ] ?? currentCode
+                          weather.hourly.weather_code[index] ?? currentCode
                         )}
                       </div>
 
@@ -1206,6 +1255,11 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
             </section>
 
             {/* ========================================================= */}
+              </>
+            )}
+
+            {activeSection === "daily" && (
+              <>
             {/* 3. 7 DAY FORECAST — THIRD */}
             {/* ========================================================= */}
             <section className="mt-5">
@@ -1219,79 +1273,71 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
                   </h2>
                 </div>
                 <span className="text-[11px] text-slate-500">
-                  Daily conditions
+                  Compact daily view
                 </span>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-                {weather.daily.time.map((date, index) => {
-                  const rain = weather.daily.precipitation_probability_max[index];
-                  const isToday = index === 0;
-                  return (
-                    <div
-                      key={date}
-                      className={`group relative overflow-hidden rounded-[26px] border p-4 transition duration-300 hover:-translate-y-1 ${
-                        isToday
-                          ? "border-cyan-400/30 bg-gradient-to-b from-cyan-400/[0.13] via-blue-500/[0.07] to-white/[0.035] shadow-lg shadow-cyan-950/30"
-                          : "border-white/10 bg-white/[0.045] hover:border-white/20 hover:bg-white/[0.07]"
-                      }`}
-                    >
-                      <div className="absolute right-[-25px] top-[-30px] h-24 w-24 rounded-full bg-cyan-400/[0.06] blur-2xl transition group-hover:bg-cyan-400/10" />
+              <div className="overflow-x-auto rounded-[28px] border border-white/10 bg-white/[0.045] p-3 shadow-lg shadow-black/20 backdrop-blur-xl">
+                <div className="flex min-w-max gap-2">
+                  {weather.daily.time.map((date, index) => {
+                    const rain = weather.daily.precipitation_probability_max[index];
+                    const isToday = index === 0;
 
-                      <div className="relative flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-bold text-white">
+                    return (
+                      <div
+                        key={date}
+                        className={`w-[108px] shrink-0 rounded-[20px] border px-3 py-3.5 text-center transition-all duration-200 hover:-translate-y-0.5 ${
+                          isToday
+                            ? "border-cyan-400/30 bg-cyan-400/[0.09] shadow-lg shadow-cyan-950/20"
+                            : "border-white/10 bg-white/[0.035] hover:bg-white/[0.07]"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <p className="text-[11px] font-bold text-white">
                             {isToday ? "Today" : formatDay(date)}
                           </p>
-                          <p className="mt-0.5 text-[10px] text-slate-500">
-                            {date.slice(5)}
-                          </p>
+                          {isToday && (
+                            <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]" />
+                          )}
                         </div>
-                        {isToday && (
-                          <span className="rounded-full bg-cyan-400/10 px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-cyan-300">
-                            Now
-                          </span>
-                        )}
-                      </div>
 
-                      <div className="relative my-5 flex items-center justify-center">
-                        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white/[0.045] text-[42px] shadow-inner ring-1 ring-white/[0.06]">
+                        <p className="mt-0.5 text-[9px] text-slate-600">{date.slice(5)}</p>
+
+                        <div className="my-2.5 text-[30px] leading-none">
                           {getWeatherEmoji(weather.daily.weather_code[index])}
                         </div>
-                      </div>
 
-                      <div className="relative text-center">
-                        <p className="text-2xl font-bold tracking-tight text-white">
-                          {Math.round(weather.daily.temperature_2m_max[index])}°
-                        </p>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          Low {Math.round(weather.daily.temperature_2m_min[index])}°
-                        </p>
-                      </div>
-
-                      <div className="relative mt-4 rounded-2xl border border-white/[0.07] bg-black/10 px-3 py-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] text-slate-500">Rain</span>
-                          <span className="text-[10px] font-semibold text-cyan-300">{rain}%</span>
+                        <div className="flex items-end justify-center gap-1.5">
+                          <span className="text-lg font-bold text-white">
+                            {Math.round(weather.daily.temperature_2m_max[index])}°
+                          </span>
+                          <span className="mb-0.5 text-[10px] text-slate-500">
+                            {Math.round(weather.daily.temperature_2m_min[index])}°
+                          </span>
                         </div>
-                        <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/[0.07]">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-blue-500"
-                            style={{ width: `${Math.max(4, rain)}%` }}
-                          />
+
+                        <div className="mt-2.5 flex items-center justify-center gap-1 text-[9px] font-semibold text-cyan-300">
+                          <span>💧</span>
+                          <span>{rain}%</span>
+                        </div>
+
+                        <div className="mt-2 flex items-center justify-center gap-1 text-[9px] text-slate-600">
+                          <span>💨</span>
+                          <span>{Math.round(weather.daily.wind_speed_10m_max[index])}</span>
+                          <span>km/h</span>
                         </div>
                       </div>
-
-                      <div className="relative mt-3 flex items-center justify-center gap-1.5 text-[10px] text-slate-500">
-                        <span>💨</span>
-                        <span>{Math.round(weather.daily.wind_speed_10m_max[index])} km/h max wind</span>
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             </section>
 
+              </>
+            )}
+
+            {activeSection === "map" && (
+              <>
             {/* 4. MAP — FOURTH */}
             {/* ========================================================= */}
             <section className="mt-5">
@@ -1324,6 +1370,11 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
               </div>
             </section>
 
+              </>
+            )}
+
+            {activeSection === "alerts" && (
+              <>
             {/* ========================================================= */}
             {/* 5. ALERTS — AFTER PRIMARY WEATHER */}
             {/* ========================================================= */}
@@ -1406,6 +1457,11 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
               </section>
             )}
 
+              </>
+            )}
+
+            {activeSection === "ai" && (
+              <>
             {/* ========================================================= */}
             {/* 6. AI WEATHERGPT */}
             {/* ========================================================= */}
@@ -1423,7 +1479,7 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div>
                     <p className="font-semibold text-white">
-                      ✨ Weather Intelligence
+                      ✨ Weather Intelligence Engine
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
                       Ask about rain, travel, clothing or forecasts.
@@ -1514,7 +1570,7 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
                   {aiLoading ? (
                     <div className="flex items-center gap-3 text-sm text-slate-500">
                       <div className="h-4 w-4 animate-spin rounded-full border border-white/15 border-t-cyan-400" />
-                      WeatherGPT is thinking...
+                      WeatherGPT is calculating...
                     </div>
                   ) : answer ? (
                     <div>
@@ -1594,6 +1650,11 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
               </div>
             </section>
 
+              </>
+            )}
+
+            {activeSection === "nwp" && (
+              <>
             {/* ========================================================= */}
             {/* 8. NWP + FORECAST CONFIDENCE */}
             {/* ========================================================= */}
@@ -1786,6 +1847,11 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
               )}
             </section>
 
+              </>
+            )}
+
+            {activeSection === "history" && (
+              <>
             {/* ========================================================= */}
             {/* 9. HISTORICAL CLIMATE */}
             {/* ========================================================= */}
@@ -1978,6 +2044,11 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
               </div>
             </section>
 
+              </>
+            )}
+
+            {activeSection === "features" && (
+              <>
             {/* ========================================================= */}
             {/* 10. CAPABILITIES */}
             {/* ========================================================= */}
@@ -2013,6 +2084,9 @@ Prioritize rain, thunderstorms, strong wind, extreme heat, fog and other clearly
                 ))}
               </div>
             </section>
+
+              </>
+            )}
 
             {/* FOOTER */}
             <footer className="mt-12 border-t border-white/10 pt-7 text-center">

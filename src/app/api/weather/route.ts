@@ -1,273 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-type AlertLevel = "moderate" | "high" | "extreme";
-
-type WeatherAlert = {
-  level: AlertLevel;
-  title: string;
-  message: string;
-  day?: string;
-  value?: number;
-};
-
-function levelRank(level: AlertLevel) {
-  return {
-    moderate: 1,
-    high: 2,
-    extreme: 3,
-  }[level];
-}
-
-function addAlert(
-  alerts: WeatherAlert[],
-  alert: WeatherAlert
-) {
-  const alreadyExists = alerts.some(
-    (item) => item.title === alert.title
-  );
-
-  if (!alreadyExists) {
-    alerts.push(alert);
-  }
-}
-
-function buildAlerts(weather: any): WeatherAlert[] {
-  const alerts: WeatherAlert[] = [];
-
-  const currentTemperature = Number(
-    weather.current?.temperature_2m ?? 0
-  );
-  const currentWind = Number(
-    weather.current?.wind_speed_10m ?? 0
-  );
-
-  const daily = weather.daily ?? {};
-
-  const dates: string[] = daily.time ?? [];
-  const maxTemperatures: number[] =
-    daily.temperature_2m_max ?? [];
-  const rainProbabilities: number[] =
-    daily.precipitation_probability_max ?? [];
-  const weatherCodes: number[] =
-    daily.weather_code ?? [];
-  const maxWinds: number[] =
-    daily.wind_speed_10m_max ?? [];
-
-  /*
-   * WMO weather codes used by Open-Meteo:
-   * 61/63/65 = rain
-   * 80/81/82 = rain showers
-   * 95/96/99 = thunderstorm
-   * 45/48 = fog
-   */
-  const isHeavyRainCode = (code: number) =>
-    code === 65 || code === 82;
-
-  const isThunderstormCode = (code: number) =>
-    code >= 95;
-
-  let severeConditions = 0;
-
-  dates.forEach((date, index) => {
-    const maxTemp = Number(maxTemperatures[index] ?? 0);
-    const rainProbability = Number(
-      rainProbabilities[index] ?? 0
-    );
-    const weatherCode = Number(
-      weatherCodes[index] ?? 0
-    );
-    const maxWind = Number(maxWinds[index] ?? 0);
-
-    const isToday = index === 0;
-
-    /*
-     * EXTREME HEAT
-     */
-    if (maxTemp >= 40) {
-      severeConditions++;
-
-      addAlert(alerts, {
-        level: "extreme",
-        title: "Extreme Heat Risk",
-        message:
-          `Maximum temperature may reach ${Math.round(
-            maxTemp
-          )}°C. Avoid prolonged outdoor exposure, stay hydrated, and follow official heat warnings.`,
-        day: date,
-        value: maxTemp,
-      });
-    } else if (maxTemp >= 37) {
-      severeConditions++;
-
-      addAlert(alerts, {
-        level: "high",
-        title: "High Heat Risk",
-        message:
-          `Maximum temperature may reach ${Math.round(
-            maxTemp
-          )}°C. Reduce strenuous outdoor activity and stay hydrated.`,
-        day: date,
-        value: maxTemp,
-      });
-    }
-
-    /*
-     * HEAVY RAIN
-     */
-    if (rainProbability >= 80 || isHeavyRainCode(weatherCode)) {
-      severeConditions++;
-
-      addAlert(alerts, {
-        level: rainProbability >= 80 ? "high" : "moderate",
-        title: "Heavy Rain Possible",
-        message:
-          `Rain probability is ${Math.round(
-            rainProbability
-          )}%. Heavy rainfall conditions are possible; allow extra travel time and watch for local flooding.`,
-        day: date,
-        value: rainProbability,
-      });
-    } else if (rainProbability >= 60) {
-      addAlert(alerts, {
-        level: "moderate",
-        title: "Rain Likely",
-        message:
-          `Rain probability is ${Math.round(
-            rainProbability
-          )}%. Consider carrying an umbrella and plan outdoor activities accordingly.`,
-        day: date,
-        value: rainProbability,
-      });
-    }
-
-    /*
-     * THUNDERSTORM
-     */
-    if (isThunderstormCode(weatherCode)) {
-      severeConditions++;
-
-      addAlert(alerts, {
-        level: weatherCode >= 96 ? "extreme" : "high",
-        title: "Thunderstorm Risk",
-        message:
-          "Thunderstorm activity is indicated in the forecast. Avoid exposed outdoor areas and follow official warnings.",
-        day: date,
-        value: weatherCode,
-      });
-    }
-
-    /*
-     * STRONG WIND
-     */
-    if (maxWind >= 60) {
-      severeConditions++;
-
-      addAlert(alerts, {
-        level: "extreme",
-        title: "Extreme Wind Risk",
-        message:
-          `Maximum wind speed may reach ${Math.round(
-            maxWind
-          )} km/h. Secure loose objects and avoid exposed areas.`,
-        day: date,
-        value: maxWind,
-      });
-    } else if (maxWind >= 40) {
-      severeConditions++;
-
-      addAlert(alerts, {
-        level: "high",
-        title: "Strong Wind",
-        message:
-          `Maximum wind speed may reach ${Math.round(
-            maxWind
-          )} km/h. Use caution around trees, structures, and open areas.`,
-        day: date,
-        value: maxWind,
-      });
-    }
-
-    /*
-     * FOG
-     */
-    if (weatherCode === 45 || weatherCode === 48) {
-      addAlert(alerts, {
-        level: "moderate",
-        title: "Reduced Visibility",
-        message:
-          "Fog may reduce visibility. Use extra caution while driving and allow additional travel time.",
-        day: date,
-        value: weatherCode,
-      });
-    }
-
-    /*
-     * HIGH-RISK COMBINATION
-     *
-     * If multiple independent severe signals appear on the same
-     * day, add a combined advisory. This is not a meteorological
-     * warning by itself; it is WeatherGPT's impact-oriented signal.
-     */
-    const severeSignals = [
-      maxTemp >= 37,
-      rainProbability >= 60,
-      isThunderstormCode(weatherCode),
-      maxWind >= 40,
-    ].filter(Boolean).length;
-
-    if (severeSignals >= 2) {
-      addAlert(alerts, {
-        level:
-          severeSignals >= 3 || maxTemp >= 40
-            ? "extreme"
-            : "high",
-        title: "Multiple Weather Hazards",
-        message:
-          "More than one significant weather factor is present in the forecast. Outdoor activities and travel should be planned carefully, with official warnings taking priority.",
-        day: date,
-      });
-    }
-
-    /*
-     * Today's immediate severe signal.
-     */
-    if (
-      isToday &&
-      (currentTemperature >= 40 || currentWind >= 60)
-    ) {
-      addAlert(alerts, {
-        level: "extreme",
-        title: "Immediate Weather Risk",
-        message:
-          "Current conditions are already at a severe threshold. Follow local official weather guidance and avoid unnecessary exposure.",
-      });
-    }
-  });
-
-  alerts.sort(
-    (a, b) =>
-      levelRank(b.level) - levelRank(a.level)
-  );
-
-  return alerts;
-}
-
-function buildAlertSummary(alerts: WeatherAlert[]) {
-  const highestRisk =
-    alerts.length > 0
-      ? alerts[0].level
-      : "low";
-
-  return {
-    highestRisk,
-    total: alerts.length,
-    hasSevereRisk: alerts.some(
-      (alert) =>
-        alert.level === "high" ||
-        alert.level === "extreme"
-    ),
-  };
-}
+import {
+  buildWeatherAlerts,
+  getCurrentWeatherCode,
+} from "@/weatherIntelligence";
 
 export async function GET(request: NextRequest) {
   try {
@@ -372,11 +108,83 @@ export async function GET(request: NextRequest) {
       await weatherResponse.json();
 
     /*
-     * ADVANCED ALERT ENGINE
+     * WEATHERGPT INTELLIGENCE ENGINE
+     *
+     * The forecast provider supplies meteorological data.
+     * Our local intelligence engine interprets it into
+     * time-aware hazards and user-facing advisories.
      */
-    const alerts = buildAlerts(weatherData);
-    const alertSummary =
-      buildAlertSummary(alerts);
+    const intelligenceData = {
+      current: {
+        temperature: Number(weatherData.current?.temperature_2m ?? 0),
+        humidity: Number(weatherData.current?.relative_humidity_2m ?? 0),
+        wind: Number(weatherData.current?.wind_speed_10m ?? 0),
+        weatherCode: Number(weatherData.hourly?.weather_code?.[0] ?? 0),
+      },
+      hourly: (weatherData.hourly?.time ?? []).map(
+        (time: string, index: number) => ({
+          time,
+          temperature: Number(
+            weatherData.hourly.temperature_2m?.[index] ?? 0
+          ),
+          rainProbability: Number(
+            weatherData.hourly.precipitation_probability?.[index] ?? 0
+          ),
+          humidity: Number(
+            weatherData.hourly.relative_humidity_2m?.[index] ?? 0
+          ),
+          wind: Number(
+            weatherData.hourly.wind_speed_10m?.[index] ?? 0
+          ),
+          weatherCode: Number(
+            weatherData.hourly.weather_code?.[index] ?? 0
+          ),
+        })
+      ),
+      daily: (weatherData.daily?.time ?? []).map(
+        (date: string, index: number) => ({
+          date,
+          maxTemperature: Number(
+            weatherData.daily.temperature_2m_max?.[index] ?? 0
+          ),
+          minTemperature: Number(
+            weatherData.daily.temperature_2m_min?.[index] ?? 0
+          ),
+          rainProbability: Number(
+            weatherData.daily.precipitation_probability_max?.[index] ?? 0
+          ),
+          weatherCode: Number(
+            weatherData.daily.weather_code?.[index] ?? 0
+          ),
+          maxWind: Number(
+            weatherData.daily.wind_speed_10m_max?.[index] ?? 0
+          ),
+        })
+      ),
+    };
+
+    const alerts = buildWeatherAlerts(intelligenceData);
+
+    const highestRisk =
+      alerts.length > 0
+        ? alerts.reduce((highest, alert) => {
+            const rank = { low: 0, moderate: 1, high: 2, extreme: 3 };
+            return rank[alert.level] > rank[highest]
+              ? alert.level
+              : highest;
+          }, "low" as "low" | "moderate" | "high" | "extreme")
+        : "low";
+
+    const alertSummary = {
+      highestRisk,
+      total: alerts.length,
+      hasSevereRisk: alerts.some(
+        (alert) =>
+          alert.level === "high" || alert.level === "extreme"
+      ),
+    };
+
+    const currentWeatherCode = getCurrentWeatherCode(intelligenceData);
 
     return NextResponse.json({
       location: {

@@ -1,0 +1,622 @@
+
+/* WeatherGPT — Premium visual layer
+   IMPORTANT: UI ONLY. No data/API/functionality is changed here. */
+
+.premium-app {
+  --w-bg: #070b12;
+  --w-panel: rgba(13, 19, 31, .82);
+  --w-panel-2: rgba(18, 26, 41, .92);
+  --w-border: rgba(255,255,255,.09);
+  --w-border-strong: rgba(255,255,255,.16);
+  --w-text: #f8fafc;
+  --w-muted: #94a3b8;
+  --w-accent: #38bdf8;
+  --w-accent-2: #818cf8;
+  min-height: 100vh;
+  background:
+    radial-gradient(900px 500px at 65% -10%, rgba(56,189,248,.12), transparent 60%),
+    radial-gradient(700px 500px at 100% 30%, rgba(99,102,241,.10), transparent 60%),
+    radial-gradient(650px 500px at 0% 80%, rgba(14,165,233,.07), transparent 60%),
+    #070b12 !important;
+  color: var(--w-text);
+}
+
+/* subtle cinematic grain */
+.premium-app::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: .20;
+  background-image: radial-gradient(rgba(255,255,255,.055) .55px, transparent .55px);
+  background-size: 5px 5px;
+}
+.premium-app > * { position: relative; z-index: 1; }
+
+/* ---------- TOP BAR ---------- */
+.premium-app > header {
+  max-width: none !important;
+  width: calc(100% - 270px) !important;
+  margin-left: 250px !important;
+  padding: 22px 34px 18px !important;
+  position: relative;
+}
+
+.premium-app > header h1 {
+  font-size: 21px !important;
+  letter-spacing: -.045em !important;
+}
+.premium-app > header p {
+  font-size: 10px !important;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.premium-app > header > div:first-child > div:first-child {
+  width: 46px !important;
+  height: 46px !important;
+  border-radius: 15px !important;
+  background: linear-gradient(145deg, rgba(56,189,248,.25), rgba(99,102,241,.18)) !important;
+  box-shadow: 0 12px 40px rgba(56,189,248,.12), inset 0 1px 0 rgba(255,255,255,.10);
+}
+
+/* ---------- SIDEBAR: existing section-nav becomes premium nav ---------- */
+.premium-app section.sticky {
+  position: fixed !important;
+  z-index: 80 !important;
+  left: 18px !important;
+  top: 18px !important;
+  bottom: 18px !important;
+  width: 214px !important;
+  margin: 0 !important;
+  display: block !important;
+}
+
+.premium-app section.sticky > div {
+  height: 100% !important;
+  box-sizing: border-box;
+  border: 1px solid var(--w-border) !important;
+  border-radius: 26px !important;
+  padding: 18px 12px !important;
+  background:
+    linear-gradient(180deg, rgba(15,23,42,.96), rgba(7,12,21,.94)) !important;
+  box-shadow: 0 30px 100px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.05) !important;
+  backdrop-filter: blur(26px) saturate(130%);
+}
+
+.premium-app section.sticky > div::before {
+  content: "WEATHERGPT";
+  display: block;
+  padding: 5px 10px 3px;
+  color: #f8fafc;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -.035em;
+}
+.premium-app section.sticky > div::after {
+  content: "Weather intelligence";
+  display: block;
+  padding: 0 10px 18px;
+  color: #64748b;
+  font-size: 9px;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+
+.premium-app section.sticky > div > div:first-child {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 5px !important;
+  overflow: visible !important;
+}
+
+.premium-app section.sticky button {
+  width: 100% !important;
+  justify-content: flex-start !important;
+  min-height: 42px;
+  border-radius: 14px !important;
+  padding: 10px 12px !important;
+  font-size: 11px !important;
+  color: #94a3b8 !important;
+}
+.premium-app section.sticky button:hover {
+  background: rgba(255,255,255,.055) !important;
+  color: #fff !important;
+}
+.premium-app section.sticky button.bg-white {
+  color: #07111d !important;
+  background: linear-gradient(135deg,#fff,#e2f4ff) !important;
+  box-shadow: 0 10px 30px rgba(56,189,248,.10) !important;
+}
+.premium-app section.sticky > div > div:last-child {
+  margin-top: auto !important;
+  padding: 14px 10px 4px !important;
+}
+.premium-app section.sticky > div > div:last-child p:last-child {
+  display: none;
+}
+
+/* ---------- MAIN CONTENT ---------- */
+.premium-app > div.mx-auto.max-w-5xl {
+  max-width: none !important;
+  width: calc(100% - 270px) !important;
+  margin-left: 250px !important;
+  margin-right: 20px !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  padding-bottom: 50px !important;
+}
+
+/* search becomes command bar */
+.premium-app form {
+  border: 1px solid var(--w-border) !important;
+  border-radius: 18px !important;
+  padding: 7px !important;
+  background: rgba(255,255,255,.045) !important;
+  box-shadow: 0 18px 55px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.045) !important;
+  backdrop-filter: blur(22px);
+}
+.premium-app form:focus-within {
+  border-color: rgba(56,189,248,.34) !important;
+  box-shadow: 0 20px 70px rgba(0,0,0,.28), 0 0 0 3px rgba(56,189,248,.06) !important;
+}
+.premium-app form input {
+  font-size: 14px !important;
+}
+.premium-app form button[type="submit"] {
+  min-width: 96px;
+  border-radius: 13px !important;
+  background: linear-gradient(135deg,#ffffff,#e9f6ff) !important;
+  color: #08111d !important;
+}
+
+/* ---------- HERO ---------- */
+.premium-app section.relative.isolate {
+  min-height: 440px;
+  border: 1px solid rgba(255,255,255,.10) !important;
+  border-radius: 30px !important;
+  padding: 34px !important;
+  background:
+    radial-gradient(circle at 78% 38%, rgba(245,158,11,.15), transparent 20%),
+    radial-gradient(circle at 100% 0%, rgba(14,165,233,.18), transparent 38%),
+    linear-gradient(135deg,#061321,#071a2a 52%,#101c4b) !important;
+  box-shadow: 0 35px 110px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.055) !important;
+}
+.premium-app section.relative.isolate [class*="text-[88px]"],
+.premium-app section.relative.isolate [class*="sm:text-[112px]"] {
+  font-weight: 500 !important;
+  letter-spacing: -.09em !important;
+}
+.premium-app section.relative.isolate .h-52 {
+  width: 245px !important;
+  height: 245px !important;
+  border-color: rgba(255,255,255,.12) !important;
+  box-shadow: 0 0 100px rgba(56,189,248,.10), inset 0 1px 0 rgba(255,255,255,.06) !important;
+}
+
+/* ---------- ALL CONTENT SURFACES ---------- */
+.premium-app section:not(.sticky) {
+  border-color: var(--w-border) !important;
+}
+.premium-app section:not(.sticky) > div {
+  /* preserves existing cards, adds depth */
+}
+.premium-app [class*="rounded-[28px]"],
+.premium-app [class*="rounded-[30px]"],
+.premium-app [class*="rounded-[24px]"] {
+  box-shadow: 0 18px 55px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.025);
+}
+
+/* headings */
+.premium-app h2 {
+  font-size: 24px !important;
+  letter-spacing: -.045em !important;
+}
+.premium-app h3 {
+  letter-spacing: -.025em;
+}
+
+/* ---------- LIGHT THEME ---------- */
+.premium-app.theme-light {
+  --w-bg: #f4f7fb;
+  --w-panel: rgba(255,255,255,.88);
+  --w-panel-2: rgba(255,255,255,.96);
+  --w-border: rgba(15,23,42,.09);
+  --w-border-strong: rgba(15,23,42,.14);
+  --w-text: #101828;
+  --w-muted: #667085;
+  background:
+    radial-gradient(800px 450px at 8% 0%, rgba(14,165,233,.10), transparent 60%),
+    radial-gradient(700px 500px at 95% 15%, rgba(99,102,241,.08), transparent 60%),
+    #f4f7fb !important;
+  color: #101828 !important;
+}
+.premium-app.theme-light > header h1,
+.premium-app.theme-light > header p,
+.premium-app.theme-light .text-white,
+.premium-app.theme-light .text-slate-100 {
+  color: #101828 !important;
+}
+.premium-app.theme-light .text-slate-200 { color: #344054 !important; }
+.premium-app.theme-light .text-slate-300 { color: #475467 !important; }
+.premium-app.theme-light .text-slate-400,
+.premium-app.theme-light .text-slate-500 { color: #667085 !important; }
+.premium-app.theme-light section.sticky > div {
+  background: rgba(255,255,255,.94) !important;
+  box-shadow: 0 25px 70px rgba(16,24,40,.12), inset 0 1px 0 #fff !important;
+}
+.premium-app.theme-light section.sticky > div::before { color:#101828; }
+.premium-app.theme-light section.sticky button { color:#667085 !important; }
+.premium-app.theme-light section.sticky button:hover { color:#101828 !important; background:#f2f4f7 !important; }
+.premium-app.theme-light section.sticky button.bg-white {
+  color:#101828 !important;
+  background:#e8f6ff !important;
+}
+.premium-app.theme-light form {
+  background: rgba(255,255,255,.92) !important;
+  box-shadow: 0 20px 55px rgba(16,24,40,.10) !important;
+}
+.premium-app.theme-light form input { color:#101828 !important; }
+.premium-app.theme-light form input::placeholder { color:#98a2b3 !important; }
+.premium-app.theme-light section.relative.isolate {
+  color:#fff !important;
+  background:
+    radial-gradient(circle at 80% 30%, rgba(245,158,11,.18), transparent 20%),
+    linear-gradient(135deg,#0b253a,#0b3850 55%,#17235d) !important;
+}
+.premium-app.theme-light section:not(.sticky) {
+  box-shadow: 0 22px 60px rgba(16,24,40,.08), inset 0 1px 0 rgba(255,255,255,.8) !important;
+}
+
+/* ---------- RESPONSIVE ---------- */
+@media (max-width: 900px) {
+  .premium-app > header,
+  .premium-app > div.mx-auto.max-w-5xl {
+    width: auto !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  .premium-app > header {
+    padding: 18px 16px 14px !important;
+  }
+  .premium-app > div.mx-auto.max-w-5xl {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+  .premium-app section.sticky {
+    position: sticky !important;
+    left: auto !important;
+    top: 8px !important;
+    bottom: auto !important;
+    width: auto !important;
+    height: auto !important;
+    margin-bottom: 16px !important;
+  }
+  .premium-app section.sticky > div {
+    height: auto !important;
+  }
+  .premium-app section.sticky > div::before,
+  .premium-app section.sticky > div::after {
+    display: none;
+  }
+  .premium-app section.sticky > div > div:first-child {
+    flex-direction: row !important;
+    overflow-x: auto !important;
+  }
+  .premium-app section.sticky button {
+    width: auto !important;
+    min-width: max-content;
+    justify-content: center !important;
+  }
+  .premium-app section.sticky > div > div:last-child {
+    display: none;
+  }
+}
+@media (max-width: 640px) {
+  .premium-app section.relative.isolate {
+    min-height: 0;
+    padding: 22px !important;
+    border-radius: 25px !important;
+  }
+  .premium-app section.relative.isolate .h-52 {
+    width: 180px !important;
+    height: 180px !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .premium-app *, .premium-app *::before, .premium-app *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+/* =========================================================
+   WeatherGPT Premium UI v2
+   UI-only enhancement layer. Existing functionality untouched.
+   ========================================================= */
+
+/* App chrome */
+.premium-app {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.premium-app::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(180deg, transparent 0%, rgba(2,6,23,.18) 100%);
+}
+
+/* Premium top bar */
+.premium-app > header {
+  border-bottom: 1px solid rgba(255,255,255,.045);
+  background: linear-gradient(180deg, rgba(7,11,18,.82), rgba(7,11,18,0));
+  backdrop-filter: blur(18px);
+}
+
+.premium-app > header > div:first-child {
+  transition: transform .25s ease;
+}
+.premium-app > header > div:first-child:hover {
+  transform: translateY(-1px);
+}
+
+.premium-theme-toggle {
+  width: 44px !important;
+  height: 44px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 14px !important;
+  border: 1px solid rgba(255,255,255,.10) !important;
+  background: rgba(255,255,255,.055) !important;
+  box-shadow: 0 12px 35px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.06) !important;
+  transition: transform .2s ease, background .2s ease, border-color .2s ease !important;
+}
+.premium-theme-toggle:hover {
+  transform: translateY(-2px) rotate(3deg);
+  background: rgba(255,255,255,.10) !important;
+  border-color: rgba(56,189,248,.25) !important;
+}
+
+/* Sidebar active item gets a small premium accent */
+.premium-app section.sticky button.bg-white {
+  position: relative;
+}
+.premium-app section.sticky button.bg-white::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 11px;
+  bottom: 11px;
+  width: 2px;
+  border-radius: 99px;
+  background: #38bdf8;
+}
+
+/* Search command bar */
+.premium-app form::before {
+  content: "⌘  SEARCH WEATHER";
+  display: block;
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.premium-app form {
+  position: relative;
+  overflow: hidden;
+}
+.premium-app form::after {
+  content: "LIVE WEATHER  •  GLOBAL CITY SEARCH";
+  position: absolute;
+  right: 118px;
+  bottom: -16px;
+  opacity: 0;
+  font-size: 8px;
+  letter-spacing: .15em;
+  color: #64748b;
+  pointer-events: none;
+  transition: opacity .2s ease;
+}
+.premium-app form:focus-within::after {
+  opacity: .8;
+}
+
+/* Hero polish */
+.premium-app section.relative.isolate {
+  isolation: isolate;
+}
+.premium-app section.relative.isolate::before {
+  content: "LIVE DATA";
+  position: absolute;
+  right: 28px;
+  bottom: 28px;
+  padding: 6px 9px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 999px;
+  background: rgba(255,255,255,.04);
+  color: rgba(148,163,184,.75);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .15em;
+  backdrop-filter: blur(12px);
+}
+
+.premium-app section.relative.isolate .h-52 {
+  animation: weatherFloat 6s ease-in-out infinite;
+}
+
+@keyframes weatherFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+/* Make existing metric cards feel like premium widgets */
+.premium-app section.relative.isolate .grid.grid-cols-2 > div,
+.premium-app section.relative.isolate .grid.grid-cols-2 > div > div {
+  transition: transform .22s ease, border-color .22s ease, background .22s ease;
+}
+.premium-app section.relative.isolate .grid.grid-cols-2 > div:hover {
+  transform: translateY(-3px);
+  border-color: rgba(56,189,248,.20);
+  background: rgba(255,255,255,.075);
+}
+
+/* Section headers */
+.premium-app section:not(.sticky) > div:first-child h2 {
+  text-wrap: balance;
+}
+.premium-app section:not(.sticky) > div:first-child p:first-child {
+  letter-spacing: .20em;
+}
+
+/* Forecast cards */
+.premium-app [class*="w-[82px]"],
+.premium-app [class*="w-[108px]"] {
+  transition: transform .2s ease, border-color .2s ease, background .2s ease, box-shadow .2s ease;
+}
+.premium-app [class*="w-[82px]"]:hover,
+.premium-app [class*="w-[108px]"]:hover {
+  transform: translateY(-4px);
+  border-color: rgba(56,189,248,.24) !important;
+  box-shadow: 0 14px 35px rgba(0,0,0,.22);
+}
+
+/* Alert cards */
+.premium-app section [class*="border-orange-100"],
+.premium-app section [class*="border-red-200"] {
+  position: relative;
+  overflow: hidden;
+}
+.premium-app section [class*="border-orange-100"]::before,
+.premium-app section [class*="border-red-200"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, #f59e0b, #ef4444);
+  opacity: .8;
+}
+
+/* AI command center */
+.premium-app section .rounded-\[20px\]:focus-within,
+.premium-app section .rounded-\[22px\]:focus-within {
+  border-color: rgba(139,92,246,.30);
+}
+
+/* AI answer gets a subtle terminal-like highlight */
+.premium-app section .text-violet-600 + p {
+  text-wrap: pretty;
+}
+
+/* NWP cards */
+.premium-app section [class*="from-cyan-500"] {
+  position: relative;
+  overflow: hidden;
+}
+.premium-app section [class*="from-cyan-500"]::after {
+  content: "MODEL GUIDANCE";
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.12);
+  color: rgba(255,255,255,.78);
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+
+/* Climate bars */
+.premium-app [class*="bg-gradient-to-r from-emerald-400"],
+.premium-app [class*="bg-gradient-to-t from-cyan-500"] {
+  box-shadow: 0 0 14px rgba(34,211,238,.15);
+}
+
+/* Feature cards */
+.premium-app section .grid.sm\:grid-cols-2.lg\:grid-cols-3 > div {
+  transition: transform .22s ease, border-color .22s ease, background .22s ease, box-shadow .22s ease;
+}
+.premium-app section .grid.sm\:grid-cols-2.lg\:grid-cols-3 > div:hover {
+  transform: translateY(-4px);
+  border-color: rgba(56,189,248,.20);
+  background: rgba(255,255,255,.075);
+  box-shadow: 0 18px 50px rgba(0,0,0,.22);
+}
+
+/* Footer */
+.premium-app footer {
+  opacity: .9;
+}
+.premium-app footer::before {
+  content: "WEATHER INTELLIGENCE PLATFORM";
+  display: block;
+  margin-bottom: 12px;
+  color: #475569;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .20em;
+}
+
+/* Light mode refinements */
+.premium-app.theme-light::after {
+  background: linear-gradient(180deg, transparent, rgba(15,23,42,.025));
+}
+.premium-app.theme-light::before {
+  opacity: .08;
+  background-image: radial-gradient(rgba(15,23,42,.07) .55px, transparent .55px);
+}
+.premium-app.theme-light > header {
+  background: linear-gradient(180deg, rgba(244,247,251,.92), rgba(244,247,251,0));
+  border-bottom-color: rgba(15,23,42,.06);
+}
+.premium-app.theme-light .premium-theme-toggle {
+  border-color: rgba(15,23,42,.09) !important;
+  background: rgba(255,255,255,.86) !important;
+  box-shadow: 0 10px 30px rgba(16,24,40,.08) !important;
+}
+
+/* Mobile */
+@media (max-width: 900px) {
+  .premium-app > header {
+    position: sticky !important;
+    top: 0;
+    z-index: 90;
+    background: rgba(7,11,18,.82);
+    backdrop-filter: blur(18px);
+  }
+  .premium-app section.relative.isolate::before {
+    right: 18px;
+    bottom: 18px;
+  }
+}
+
+@media (max-width: 640px) {
+  .premium-app > header h1 {
+    font-size: 18px !important;
+  }
+  .premium-app > header p {
+    display: none;
+  }
+  .premium-app .premium-location-button {
+    font-size: 0 !important;
+    width: 42px !important;
+    height: 42px !important;
+    padding: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  .premium-app .premium-location-button span {
+    font-size: 16px !important;
+  }
+  .premium-app section.relative.isolate .h-52 {
+    animation-duration: 7s;
+  }
+}
